@@ -1,0 +1,6 @@
+telethon
+python-dotenv
+gspread
+oauth2client
+requests
+asyncio
