@@ -1,35 +1,45 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from config import GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
+from logger import logger
 
 class SheetsHandler:
     def __init__(self):
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name(
-            GOOGLE_SERVICE_ACCOUNT_JSON, scope)
-        self.client = gspread.authorize(creds)
-        self.sheet = self.client.open_by_key(GOOGLE_SHEET_ID).sheet1
-        self._ensure_headers()
+        try:
+            scope = ['https://spreadsheets.google.com/feeds',
+                     'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_name(
+                GOOGLE_SERVICE_ACCOUNT_JSON, scope)
+            self.client = gspread.authorize(creds)
+            self.sheet = self.client.open_by_key(GOOGLE_SHEET_ID).sheet1
+            self._ensure_headers()
+            logger.success("Google Sheets connection established")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Sheets: {e}", exc_info=True)
+            raise
     
     def _ensure_headers(self):
         """Ensure spreadsheet has correct headers"""
-        headers = [
-            'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'ca', 
-            'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
-            'volume_24h', 'bundles_percent', 'snipers_percent', 'dev_percent', 
-            'confidence_score', 'price_5min', 'mc_5min', 'change_5min', 
-            'price_10min', 'mc_10min', 'change_10min', 'price_15min', 'mc_15min', 
-            'change_15min', 'price_30min', 'mc_30min', 'change_30min', 
-            'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
-            'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
-            'alert_10x_time', 'alert_history_last', 'error_log', 
-            'link_dexscreener', 'link_pump'
-        ]
-        
-        existing_headers = self.sheet.row_values(1)
-        if not existing_headers or existing_headers != headers:
-            self.sheet.insert_row(headers, 1)
+        try:
+            headers = [
+                'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'ca', 
+                'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
+                'volume_24h', 'bundles_percent', 'snipers_percent', 'dev_percent', 
+                'confidence_score', 'price_5min', 'mc_5min', 'change_5min', 
+                'price_10min', 'mc_10min', 'change_10min', 'price_15min', 'mc_15min', 
+                'change_15min', 'price_30min', 'mc_30min', 'change_30min', 
+                'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
+                'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
+                'alert_10x_time', 'alert_history_last', 'error_log', 
+                'link_dexscreener', 'link_pump'
+            ]
+            
+            existing_headers = self.sheet.row_values(1)
+            if not existing_headers or existing_headers != headers:
+                self.sheet.insert_row(headers, 1)
+                logger.info("📊 Headers updated in spreadsheet")
+        except Exception as e:
+            logger.error(f"Error ensuring headers: {e}", exc_info=True)
     
     def append_signal(self, data):
         """Append new signal to sheet"""
@@ -82,10 +92,11 @@ class SheetsHandler:
             ]
             
             self.sheet.append_row(row)
-            print(f"✅ Signal appended: {data.get('token_name')} - {data.get('ca')}")
+            logger.success(f"Signal saved to sheet: {data.get('token_name')} ({data.get('ca', '')[:8]}...)")
             return next_number
+            
         except Exception as e:
-            print(f"❌ Error appending signal: {e}")
+            logger.error(f"Error appending signal to sheet: {e}", exc_info=True)
             return None
     
     def get_active_signals(self):
@@ -101,7 +112,7 @@ class SheetsHandler:
             
             return active_signals
         except Exception as e:
-            print(f"❌ Error getting active signals: {e}")
+            logger.error(f"Error getting active signals: {e}", exc_info=True)
             return []
     
     def update_tracking_data(self, row_index, interval, price, mc, change):
@@ -127,8 +138,10 @@ class SheetsHandler:
             ]
             
             self.sheet.batch_update(updates)
+            logger.debug(f"Updated {interval}min data for row {row_index}")
+            
         except Exception as e:
-            print(f"❌ Error updating tracking data: {e}")
+            logger.error(f"Error updating tracking data: {e}", exc_info=True)
     
     def update_peak_and_alerts(self, row_index, peak_mc, peak_mult, alert_history_last, alert_times):
         """Update peak MC, multiplier, and alert data"""
@@ -149,32 +162,41 @@ class SheetsHandler:
                     })
             
             self.sheet.batch_update(updates)
+            logger.debug(f"Updated peak/alerts for row {row_index}")
+            
         except Exception as e:
-            print(f"❌ Error updating peak/alerts: {e}")
+            logger.error(f"Error updating peak/alerts: {e}", exc_info=True)
     
     def update_status(self, row_index, status):
         """Update signal status"""
         try:
             self.sheet.update(f"AG{row_index}", [[status]])  # current_status column
+            logger.debug(f"Status updated to '{status}' for row {row_index}")
         except Exception as e:
-            print(f"❌ Error updating status: {e}")
+            logger.error(f"Error updating status: {e}", exc_info=True)
     
     def update_error_log(self, row_index, error_msg):
         """Update error log column"""
         try:
-            self.sheet.update(f"AM{row_index}", [[error_msg]])  # error_log column
+            # Truncate error message if too long
+            truncated_error = error_msg[:500] + "..." if len(error_msg) > 500 else error_msg
+            self.sheet.update(f"AM{row_index}", [[truncated_error]])  # error_log column
+            logger.debug(f"Error logged for row {row_index}: {error_msg[:50]}...")
         except Exception as e:
-            print(f"❌ Error updating error log: {e}")
+            logger.error(f"Error updating error log: {e}")
     
     def find_row_by_ca(self, ca):
         """Find row index by contract address"""
         try:
             ca_column = self.sheet.col_values(5)  # Column E (ca)
             if ca in ca_column:
-                return ca_column.index(ca) + 1
+                row_index = ca_column.index(ca) + 1
+                logger.debug(f"Found CA {ca} at row {row_index}")
+                return row_index
+            logger.warning(f"CA {ca} not found in sheet")
             return None
         except Exception as e:
-            print(f"❌ Error finding row by CA: {e}")
+            logger.error(f"Error finding row by CA: {e}", exc_info=True)
             return None
     
     def update_alert_from_message(self, ca, alert_data):
@@ -182,6 +204,7 @@ class SheetsHandler:
         try:
             row_index = self.find_row_by_ca(ca)
             if not row_index:
+                logger.warning(f"Cannot update alert - CA {ca} not found")
                 return
             
             multiplier = alert_data.get('multiplier', 0)
@@ -194,6 +217,7 @@ class SheetsHandler:
             
             if peak > current_peak:
                 self.sheet.update(f"AF{row_index}", [[peak]])  # peak_multiplier
+                logger.info(f"📈 Peak updated to {peak}x for CA {ca[:8]}...")
                 
                 if alert_data.get('current_mc'):
                     self.sheet.update(f"AE{row_index}", [[alert_data['current_mc']]])  # peak_mc
@@ -206,6 +230,7 @@ class SheetsHandler:
             if multiplier in alert_col_mapping:
                 self.sheet.update(f"{alert_col_mapping[multiplier]}{row_index}", [[alert_time]])
             
-            print(f"✅ Alert updated: {multiplier}x for CA {ca}")
+            logger.success(f"Alert updated: {multiplier}x for CA {ca[:8]}...")
+            
         except Exception as e:
-            print(f"❌ Error updating alert from message: {e}")
+            logger.error(f"Error updating alert from message: {e}", exc_info=True)

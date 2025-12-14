@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from logger import logger
 
 def parse_new_signal(message_text, channel_id, channel_name):
     """Parse new signal message from Telegram channel"""
@@ -97,9 +98,11 @@ def parse_new_signal(message_text, channel_id, channel_name):
         data['alert_10x_time'] = ''
         data['error_log'] = ''
         
+        logger.debug(f"Parsed signal: {data['token_name']} | CA: {data['ca'][:8] if data['ca'] else 'None'}...")
         return data
+        
     except Exception as e:
-        print(f"Error parsing signal: {e}")
+        logger.error(f"Error parsing signal from {channel_name}: {e}", exc_info=True)
         return None
 
 
@@ -141,18 +144,27 @@ def parse_alert_update(message_text):
         
         data['alert_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
+        logger.debug(f"Parsed alert: {data['multiplier']}x for CA {data['ca'][:8] if data['ca'] else 'None'}...")
         return data
+        
     except Exception as e:
-        print(f"Error parsing alert update: {e}")
+        logger.error(f"Error parsing alert update: {e}", exc_info=True)
         return None
 
 
 def is_signal_message(message_text):
     """Check if message is a new signal"""
     keywords = ['Contract:', 'Market Cap:', 'Chain:', 'Confidence:']
-    return any(keyword in message_text for keyword in keywords)
+    is_signal = any(keyword in message_text for keyword in keywords)
+    if is_signal:
+        logger.debug("Message identified as signal")
+    return is_signal
 
 
 def is_alert_message(message_text):
     """Check if message is an alert update"""
-    return re.search(r'\d+x\s+ALERT', message_text, re.IGNORECASE) is not None
+    is_alert = re.search(r'\d+x\s+ALERT', message_text, re.IGNORECASE) is not None
+    if is_alert:
+        logger.debug("Message identified as alert")
+    return is_alert
+

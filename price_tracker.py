@@ -2,24 +2,40 @@ import requests
 import asyncio
 from datetime import datetime
 from config import DEXSCREENER_API_BASE, TRACKING_INTERVALS, ALERT_MULTIPLIERS
+from logger import logger
 
 class PriceTracker:
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
+        self.last_heartbeat = datetime.now()
     
     async def track_prices(self):
         """Main tracking loop"""
+        logger.info("🔄 Price tracking loop started")
+        
         while True:
             try:
                 active_signals = self.sheets.get_active_signals()
-                print(f"🔄 Tracking {len(active_signals)} active signals...")
                 
-                for signal in active_signals:
-                    await self.process_signal(signal)
+                if active_signals:
+                    logger.debug(f"Processing {len(active_signals)} active signals...")
+                    
+                    for signal in active_signals:
+                        await self.process_signal(signal)
+                        await asyncio.sleep(1)  # Small delay between signals
+                else:
+                    logger.debug("No active signals to track")
+                
+                # Heartbeat every 10 minutes in price tracker
+                now = datetime.now()
+                if (now - self.last_heartbeat).total_seconds() > 600:
+                    logger.debug(f"Price tracker heartbeat - processed {len(active_signals)} signals")
+                    self.last_heartbeat = now
                 
                 await asyncio.sleep(60)  # Check every minute
+                
             except Exception as e:
-                print(f"❌ Error in tracking loop: {e}")
+                logger.error(f"Error in tracking loop: {e}", exc_info=True)
                 await asyncio.sleep(60)
     
     async def process_signal(self, signal):
@@ -27,13 +43,16 @@ class PriceTracker:
         try:
             row_index = signal['row_index']
             ca = signal.get('ca', '')
+            token_name = signal.get('token_name', 'Unknown')
             
             if not ca:
+                logger.warning(f"No CA found for signal: {token_name}")
                 return
             
             # Calculate elapsed time
             timestamp_str = signal.get('timestamp_received', '')
             if not timestamp_str:
+                logger.warning(f"No timestamp for signal: {token_name}")
                 return
             
             timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
@@ -42,7 +61,7 @@ class PriceTracker:
             # Check if we need to stop tracking (after 60 minutes)
             if elapsed_minutes > 60:
                 self.sheets.update_status(row_index, 'stopped')
-                print(f"⏹️ Stopped tracking: {signal.get('token_name')}")
+                logger.stopped_tracking(token_name)
                 return
             
             # Check which intervals need updating
@@ -55,17 +74,24 @@ class PriceTracker:
                         await self.update_interval(signal, row_index, ca, interval)
         
         except Exception as e:
-            print(f"❌ Error processing signal: {e}")
-            self.sheets.update_error_log(signal.get('row_index'), str(e))
+            error_msg = f"Error processing signal {signal.get('token_name', 'Unknown')}: {e}"
+            logger.error(error_msg, exc_info=True)
+            
+            row_index = signal.get('row_index')
+            if row_index:
+                self.sheets.update_error_log(row_index, str(e))
     
     async def update_interval(self, signal, row_index, ca, interval):
         """Fetch price and update specific interval"""
+        token_name = signal.get('token_name', 'Unknown')
+        
         try:
             # Fetch from DexScreener
             price_data = await self.fetch_dexscreener_price(ca)
             
             if not price_data:
-                error_msg = f"Failed to fetch price at {interval}min"
+                error_msg = f"Failed to fetch price data for {token_name} at {interval}min"
+                logger.warning(error_msg)
                 self.sheets.update_error_log(row_index, error_msg)
                 return
             
@@ -96,20 +122,24 @@ class PriceTracker:
                 peak_mc = current_mc
                 peak_mult = multiplier
                 
+                logger.info(f"🚀 New peak for {token_name}: {peak_mult:.2f}x (${current_mc:,.0f})")
+                
                 # Check for alert achievements
                 for alert_mult in ALERT_MULTIPLIERS:
                     if multiplier >= alert_mult and alert_history_last < alert_mult:
                         alert_history_last = alert_mult
                         alert_times[alert_mult] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        logger.alert_triggered(f"{alert_mult}x", token_name)
                 
                 self.sheets.update_peak_and_alerts(
                     row_index, peak_mc, peak_mult, alert_history_last, alert_times
                 )
             
-            print(f"✅ Updated {interval}min: {signal.get('token_name')} - {multiplier:.2f}x")
+            logger.tracking_update(token_name, interval, multiplier)
             
         except Exception as e:
-            print(f"❌ Error updating interval {interval}min: {e}")
+            error_msg = f"Error updating {interval}min interval for {token_name}: {e}"
+            logger.error(error_msg, exc_info=True)
             self.sheets.update_error_log(row_index, str(e))
     
     async def fetch_dexscreener_price(self, ca):
@@ -119,23 +149,35 @@ class PriceTracker:
             response = requests.get(url, timeout=10)
             
             if response.status_code != 200:
+                logger.api_error("DexScreener", f"HTTP {response.status_code}")
                 return None
             
             data = response.json()
             
             if not data.get('pairs'):
+                logger.warning(f"No pairs found for CA: {ca}")
                 return None
             
             # Get the first pair (usually the most liquid)
             pair = data['pairs'][0]
             
-            return {
+            result = {
                 'price': float(pair.get('priceUsd', 0)),
                 'market_cap': float(pair.get('fdv', 0)),  # Fully Diluted Valuation
                 'liquidity': float(pair.get('liquidity', {}).get('usd', 0)),
                 'volume_24h': float(pair.get('volume', {}).get('h24', 0))
             }
+            
+            logger.debug(f"DexScreener data fetched: ${result['market_cap']:,.0f} MC")
+            return result
         
-        except Exception as e:
-            print(f"❌ DexScreener API error: {e}")
+        except requests.RequestException as e:
+            logger.api_error("DexScreener", f"Request failed: {e}")
             return None
+        except (KeyError, ValueError, TypeError) as e:
+            logger.api_error("DexScreener", f"Data parsing error: {e}")
+            return None
+        except Exception as e:
+            logger.api_error("DexScreener", f"Unexpected error: {e}")
+            return None
+

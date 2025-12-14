@@ -21,3 +21,14 @@ TRACKING_INTERVALS = [5, 10, 15, 30, 60]
 
 # Alert multipliers
 ALERT_MULTIPLIERS = [2, 3, 5, 10]
+
+# Logging and Monitoring Config
+HEARTBEAT_INTERVAL = 300  # 5 minutes
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+ENABLE_DEBUG_LOGS = os.getenv('ENABLE_DEBUG_LOGS', 'False').lower() == 'true'
+
+# Bot Settings
+MAX_ERROR_LOG_LENGTH = 500
+API_TIMEOUT = 10
+PRICE_CHECK_INTERVAL = 60  # seconds
+TRACKING_DURATION = 60  # minutes
