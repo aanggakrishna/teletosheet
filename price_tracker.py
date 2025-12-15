@@ -100,9 +100,9 @@ class PriceTracker:
             if not price_data:
                 # Check if this is the first attempt (5min interval)
                 if interval == 5:
-                    error_msg = f"Token not found on DexScreener (possibly delisted or too new): {ca[:8]}..."
-                    logger.warning(f"⚠️ {token_name}: {error_msg}")
-                    self.sheets.update_status(row_index, 'not_found')
+                    error_msg = f"No trading data available on DexScreener - CA: {ca}"
+                    logger.warning(f"⚠️ {token_name}: No price data available (might be unlisted/no liquidity)")
+                    self.sheets.update_status(row_index, 'no_pairs')
                     self.sheets.update_error_log(row_index, error_msg)
                 # For subsequent intervals, just skip silently (already logged in 5min)
                 return
@@ -162,21 +162,26 @@ class PriceTracker:
                 logger.warning(f"Invalid CA format: {ca}")
                 return None
             
-            url = f"{DEXSCREENER_API_BASE}/tokens/solana/{ca}"
+            # DexScreener API: /tokens/{address} - will auto-detect chain
+            url = f"{DEXSCREENER_API_BASE}/tokens/{ca}"
+            logger.debug(f"Fetching from DexScreener: {url}")
+            
             response = requests.get(url, timeout=10)
             
             if response.status_code == 404:
-                # Token not found - this is common for new/delisted tokens
-                logger.debug(f"Token not found on DexScreener (404): {ca[:8]}...")
+                # Token not found - endpoint doesn't recognize the address
+                logger.debug(f"DexScreener 404 for CA: {ca[:8]}...")
                 return None
             elif response.status_code != 200:
-                logger.api_error("DexScreener", f"HTTP {response.status_code}")
+                logger.api_error("DexScreener", f"HTTP {response.status_code} for CA: {ca[:8]}...")
                 return None
             
             data = response.json()
             
-            if not data.get('pairs'):
-                logger.debug(f"No pairs found for CA: {ca[:8]}...")
+            # Check if we got pairs data
+            if not data.get('pairs') or len(data['pairs']) == 0:
+                # API returned OK but no trading pairs exist
+                logger.debug(f"No trading pairs found for CA: {ca[:8]}... (token exists but not listed/traded)")
                 return None
             
             # Get the first pair (usually the most liquid)
@@ -189,7 +194,7 @@ class PriceTracker:
                 'volume_24h': float(pair.get('volume', {}).get('h24', 0))
             }
             
-            logger.debug(f"DexScreener data fetched: ${result['market_cap']:,.0f} MC")
+            logger.debug(f"DexScreener data fetched for {ca[:8]}...: ${result['market_cap']:,.0f} MC")
             return result
         
         except requests.RequestException as e:
