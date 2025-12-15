@@ -122,11 +122,65 @@ def parse_new_signal(message_text, channel_id, channel_name, message_id):
         data['alert_10x_time'] = ''
         data['error_log'] = ''
         
+        # If SPONSORED message (missing price/mc data), fetch from DexScreener
+        is_sponsored = 'SPONSORED' in message_text.upper()[:50]
+        if is_sponsored and data['ca'] and (data['price_entry'] == 0 or data['mc_entry'] == 0):
+            logger.info(f"📢 Sponsored signal detected for {data['token_name']}, fetching live data from DexScreener...")
+            dex_data = fetch_dexscreener_data_sync(data['ca'])
+            if dex_data:
+                data['price_entry'] = dex_data.get('price', 0)
+                data['mc_entry'] = dex_data.get('market_cap', 0)
+                data['liquidity'] = dex_data.get('liquidity', 0)
+                data['volume_24h'] = dex_data.get('volume_24h', 0)
+                data['peak_mc'] = data['mc_entry']
+                logger.success(f"✅ Fetched live data: Price=${data['price_entry']}, MC=${data['mc_entry']:,.0f}")
+            else:
+                logger.warning(f"⚠️ Could not fetch live data for {data['token_name']}")
+        
         logger.debug(f"Parsed signal: {data['token_name']} | CA: {data['ca'][:8] if data['ca'] else 'None'}...")
         return data
         
     except Exception as e:
         logger.error(f"Error parsing signal from {channel_name}: {e}", exc_info=True)
+        return None
+
+
+def fetch_dexscreener_data_sync(ca):
+    """Fetch price data from DexScreener synchronously (for signal parsing)"""
+    try:
+        import requests
+        from config import DEXSCREENER_API_BASE
+        
+        if not ca or len(ca) < 32:
+            return None
+        
+        url = f"{DEXSCREENER_API_BASE}/tokens/{ca}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code != 200:
+            logger.debug(f"DexScreener API returned {response.status_code} for {ca[:8]}...")
+            return None
+        
+        data = response.json()
+        
+        if not data.get('pairs'):
+            logger.debug(f"No trading pairs found for {ca[:8]}...")
+            return None
+        
+        # Get the first pair (usually the most liquid)
+        pair = data['pairs'][0]
+        
+        result = {
+            'price': float(pair.get('priceUsd', 0)),
+            'market_cap': float(pair.get('fdv', 0)),
+            'liquidity': float(pair.get('liquidity', {}).get('usd', 0)),
+            'volume_24h': float(pair.get('volume', {}).get('h24', 0))
+        }
+        
+        return result
+        
+    except Exception as e:
+        logger.debug(f"Error fetching DexScreener data: {e}")
         return None
 
 
