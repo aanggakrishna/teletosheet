@@ -86,13 +86,25 @@ class PriceTracker:
         token_name = signal.get('token_name', 'Unknown')
         
         try:
+            # Validate CA first
+            if not ca or len(ca) < 32:
+                error_msg = f"Invalid CA for {token_name}, stopping tracking"
+                logger.warning(error_msg)
+                self.sheets.update_status(row_index, 'invalid_ca')
+                self.sheets.update_error_log(row_index, error_msg)
+                return
+            
             # Fetch from DexScreener
             price_data = await self.fetch_dexscreener_price(ca)
             
             if not price_data:
-                error_msg = f"Failed to fetch price data for {token_name} at {interval}min"
-                logger.warning(error_msg)
-                self.sheets.update_error_log(row_index, error_msg)
+                # Check if this is the first attempt (5min interval)
+                if interval == 5:
+                    error_msg = f"Token not found on DexScreener (possibly delisted or too new): {ca[:8]}..."
+                    logger.warning(f"⚠️ {token_name}: {error_msg}")
+                    self.sheets.update_status(row_index, 'not_found')
+                    self.sheets.update_error_log(row_index, error_msg)
+                # For subsequent intervals, just skip silently (already logged in 5min)
                 return
             
             current_price = price_data.get('price', 0)
@@ -145,17 +157,26 @@ class PriceTracker:
     async def fetch_dexscreener_price(self, ca):
         """Fetch price from DexScreener API"""
         try:
+            # Validate CA before making request
+            if not ca or len(ca) < 32:
+                logger.warning(f"Invalid CA format: {ca}")
+                return None
+            
             url = f"{DEXSCREENER_API_BASE}/tokens/solana/{ca}"
             response = requests.get(url, timeout=10)
             
-            if response.status_code != 200:
+            if response.status_code == 404:
+                # Token not found - this is common for new/delisted tokens
+                logger.debug(f"Token not found on DexScreener (404): {ca[:8]}...")
+                return None
+            elif response.status_code != 200:
                 logger.api_error("DexScreener", f"HTTP {response.status_code}")
                 return None
             
             data = response.json()
             
             if not data.get('pairs'):
-                logger.warning(f"No pairs found for CA: {ca}")
+                logger.debug(f"No pairs found for CA: {ca[:8]}...")
                 return None
             
             # Get the first pair (usually the most liquid)
@@ -172,12 +193,12 @@ class PriceTracker:
             return result
         
         except requests.RequestException as e:
-            logger.api_error("DexScreener", f"Request failed: {e}")
+            logger.debug(f"DexScreener request failed: {e}")
             return None
         except (KeyError, ValueError, TypeError) as e:
-            logger.api_error("DexScreener", f"Data parsing error: {e}")
+            logger.debug(f"DexScreener data parsing error: {e}")
             return None
         except Exception as e:
-            logger.api_error("DexScreener", f"Unexpected error: {e}")
+            logger.error(f"DexScreener unexpected error: {e}", exc_info=True)
             return None
 

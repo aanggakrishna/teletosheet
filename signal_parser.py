@@ -15,9 +15,26 @@ def parse_new_signal(message_text, channel_id, channel_name, message_id):
             'update_history': ''
         }
         
-        # Extract token name (first line)
+        # Extract token name - skip SPONSORED and emoji lines
         lines = message_text.strip().split('\n')
-        data['token_name'] = lines[0].strip() if lines else ''
+        token_name_found = False
+        raw_token_name = ''
+        
+        for line in lines:
+            cleaned_line = re.sub(r'[^\w\s\-]', '', line).strip()
+            # Skip empty lines, "SPONSORED", and lines with keywords
+            if cleaned_line and cleaned_line.upper() != 'SPONSORED' and not any(
+                keyword in line.upper() for keyword in ['CONTRACT', 'CHAIN', 'PRICE', 'MARKET', 'LIQUIDITY', 'VOLUME', 'BUNDLES', 'SNIPERS', 'DEX', 'CONFIDENCE']
+            ):
+                raw_token_name = cleaned_line
+                token_name_found = True
+                break
+        
+        data['token_name'] = raw_token_name if token_name_found else 'Unknown'
+        
+        # If sponsored message, mark it
+        if 'SPONSORED' in message_text.upper()[:50]:
+            logger.debug(f"Sponsored signal detected: {data['token_name']}")
         
         # Extract chain
         chain_match = re.search(r'Chain:\s*(\w+)', message_text, re.IGNORECASE)
@@ -73,9 +90,14 @@ def parse_new_signal(message_text, channel_id, channel_name, message_id):
         conf_match = re.search(r'Confidence:\s*(\d+)%', message_text, re.IGNORECASE)
         data['confidence_score'] = int(conf_match.group(1)) if conf_match else 0
         
-        # Extract Contract Address (CA)
-        ca_match = re.search(r'Contract:\s*([A-Za-z0-9]+)', message_text, re.IGNORECASE)
+        # Extract Contract Address (CA) - Solana addresses are typically 32-44 characters
+        ca_match = re.search(r'Contract:\s*([A-Za-z0-9]{32,44})', message_text, re.IGNORECASE)
         data['ca'] = ca_match.group(1) if ca_match else ''
+        
+        # Validate CA format (basic validation)
+        if data['ca'] and len(data['ca']) < 32:
+            logger.warning(f"Invalid CA length for {data['token_name']}: {data['ca']}")
+            data['ca'] = ''  # Reset if invalid
         
         # Generate links
         if data['ca']:
