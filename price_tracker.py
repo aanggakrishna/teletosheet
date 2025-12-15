@@ -9,6 +9,29 @@ class PriceTracker:
         self.sheets = sheets_handler
         self.last_heartbeat = datetime.now()
     
+    @staticmethod
+    def clean_numeric_value(value):
+        """Clean and convert numeric value from sheets (handles $, commas, etc)"""
+        if value is None or value == '':
+            return 0.0
+        
+        # If already a number, return it
+        if isinstance(value, (int, float)):
+            return float(value)
+        
+        # If string, clean it
+        if isinstance(value, str):
+            # Remove $, commas, spaces, and other non-numeric chars (except . and -)
+            cleaned = value.replace('$', '').replace(',', '').replace(' ', '').strip()
+            if cleaned == '' or cleaned == '-':
+                return 0.0
+            try:
+                return float(cleaned)
+            except ValueError:
+                return 0.0
+        
+        return 0.0
+    
     async def track_prices(self):
         """Main tracking loop"""
         logger.info("🔄 Price tracking loop started")
@@ -110,8 +133,8 @@ class PriceTracker:
             current_price = price_data.get('price', 0)
             current_mc = price_data.get('market_cap', 0)
             
-            # Calculate change
-            entry_mc = float(signal.get('mc_entry', 0))
+            # Calculate change - use clean_numeric_value for sheet data
+            entry_mc = self.clean_numeric_value(signal.get('mc_entry', 0))
             if entry_mc > 0:
                 change_percent = ((current_mc - entry_mc) / entry_mc) * 100
                 multiplier = current_mc / entry_mc
@@ -124,10 +147,10 @@ class PriceTracker:
                 row_index, interval, current_price, current_mc, f"{change_percent:.2f}%"
             )
             
-            # Update peak if higher
-            peak_mc = float(signal.get('peak_mc', entry_mc))
-            peak_mult = float(signal.get('peak_multiplier', 1.0))
-            alert_history_last = int(signal.get('alert_history_last', 0))
+            # Update peak if higher - use clean_numeric_value for sheet data
+            peak_mc = self.clean_numeric_value(signal.get('peak_mc', entry_mc))
+            peak_mult = self.clean_numeric_value(signal.get('peak_multiplier', 1.0))
+            alert_history_last = int(self.clean_numeric_value(signal.get('alert_history_last', 0)))
             alert_times = {}
             
             if current_mc > peak_mc:
