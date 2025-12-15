@@ -2,15 +2,17 @@ import re
 from datetime import datetime
 from logger import logger
 
-def parse_new_signal(message_text, channel_id, channel_name):
+def parse_new_signal(message_text, channel_id, channel_name, message_id):
     """Parse new signal message from Telegram channel"""
     try:
         data = {
             'timestamp_received': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'channel_id': channel_id,
             'channel_name': channel_name,
+            'message_id': message_id,
             'current_status': 'active',
-            'alert_history_last': 0
+            'alert_history_last': 0,
+            'update_history': ''
         }
         
         # Extract token name (first line)
@@ -118,7 +120,15 @@ def parse_alert_update(message_text):
         
         data['multiplier'] = int(mult_match.group(1))
         
-        # Extract CA
+        # Extract token name
+        token_match = re.search(r'🪙\s*(.+)', message_text)
+        data['token_name'] = token_match.group(1).strip() if token_match else ''
+        
+        # Extract Time elapsed
+        time_match = re.search(r'⏱️\s*Time:\s*(.+)', message_text, re.IGNORECASE)
+        data['time_elapsed'] = time_match.group(1).strip() if time_match else ''
+        
+        # Extract CA (if present)
         ca_match = re.search(r'([A-Za-z0-9]{30,})', message_text)
         data['ca'] = ca_match.group(1) if ca_match else ''
         
@@ -138,13 +148,17 @@ def parse_alert_update(message_text):
             multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
             data['current_mc'] = mc_value * multipliers.get(mc_unit, 1)
         
+        # Extract Gain
+        gain_match = re.search(r'Gain:\s*([\d.]+)x', message_text, re.IGNORECASE)
+        data['gain'] = float(gain_match.group(1)) if gain_match else data['multiplier']
+        
         # Extract Peak
         peak_match = re.search(r'Peak:\s*([\d.]+)x', message_text, re.IGNORECASE)
         data['peak'] = float(peak_match.group(1)) if peak_match else data['multiplier']
         
         data['alert_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        logger.debug(f"Parsed alert: {data['multiplier']}x for CA {data['ca'][:8] if data['ca'] else 'None'}...")
+        logger.debug(f"Parsed alert: {data['multiplier']}x for {data.get('token_name', 'Unknown')} (Time: {data.get('time_elapsed', 'N/A')})")
         return data
         
     except Exception as e:

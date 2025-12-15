@@ -22,15 +22,15 @@ class SheetsHandler:
         """Ensure spreadsheet has correct headers"""
         try:
             headers = [
-                'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'ca', 
-                'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
+                'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'message_id',
+                'ca', 'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
                 'volume_24h', 'bundles_percent', 'snipers_percent', 'dev_percent', 
                 'confidence_score', 'price_5min', 'mc_5min', 'change_5min', 
                 'price_10min', 'mc_10min', 'change_10min', 'price_15min', 'mc_15min', 
                 'change_15min', 'price_30min', 'mc_30min', 'change_30min', 
                 'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
                 'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
-                'alert_10x_time', 'alert_history_last', 'error_log', 
+                'alert_10x_time', 'alert_history_last', 'update_history', 'error_log', 
                 'link_dexscreener', 'link_pump'
             ]
             
@@ -52,6 +52,7 @@ class SheetsHandler:
                 data.get('timestamp_received', ''),
                 data.get('channel_id', ''),
                 data.get('channel_name', ''),
+                data.get('message_id', ''),
                 data.get('ca', ''),
                 data.get('token_name', ''),
                 data.get('chain', ''),
@@ -86,6 +87,7 @@ class SheetsHandler:
                 data.get('alert_5x_time', ''),
                 data.get('alert_10x_time', ''),
                 data.get('alert_history_last', ''),
+                data.get('update_history', ''),
                 data.get('error_log', ''),
                 data.get('link_dexscreener', ''),
                 data.get('link_pump', '')
@@ -118,13 +120,13 @@ class SheetsHandler:
     def update_tracking_data(self, row_index, interval, price, mc, change):
         """Update tracking columns for specific interval"""
         try:
-            # Column mapping (adjust based on header order)
+            # Column mapping (adjusted after adding message_id column - all shifted by 1)
             col_mapping = {
-                5: {'price': 'P', 'mc': 'Q', 'change': 'R'},
-                10: {'price': 'S', 'mc': 'T', 'change': 'U'},
-                15: {'price': 'V', 'mc': 'W', 'change': 'X'},
-                30: {'price': 'Y', 'mc': 'Z', 'change': 'AA'},
-                60: {'price': 'AB', 'mc': 'AC', 'change': 'AD'}
+                5: {'price': 'Q', 'mc': 'R', 'change': 'S'},
+                10: {'price': 'T', 'mc': 'U', 'change': 'V'},
+                15: {'price': 'W', 'mc': 'X', 'change': 'Y'},
+                30: {'price': 'Z', 'mc': 'AA', 'change': 'AB'},
+                60: {'price': 'AC', 'mc': 'AD', 'change': 'AE'}
             }
             
             cols = col_mapping.get(interval)
@@ -147,13 +149,13 @@ class SheetsHandler:
         """Update peak MC, multiplier, and alert data"""
         try:
             updates = [
-                {'range': f"AE{row_index}", 'values': [[peak_mc]]},  # peak_mc
-                {'range': f"AF{row_index}", 'values': [[peak_mult]]},  # peak_multiplier
-                {'range': f"AL{row_index}", 'values': [[alert_history_last]]}  # alert_history_last
+                {'range': f"AF{row_index}", 'values': [[peak_mc]]},  # peak_mc (shifted)
+                {'range': f"AG{row_index}", 'values': [[peak_mult]]},  # peak_multiplier (shifted)
+                {'range': f"AM{row_index}", 'values': [[alert_history_last]]}  # alert_history_last (shifted)
             ]
             
-            # Update alert timestamp columns
-            alert_col_mapping = {2: 'AH', 3: 'AI', 5: 'AJ', 10: 'AK'}
+            # Update alert timestamp columns (all shifted by 1)
+            alert_col_mapping = {2: 'AI', 3: 'AJ', 5: 'AK', 10: 'AL'}
             for mult, timestamp in alert_times.items():
                 if mult in alert_col_mapping and timestamp:
                     updates.append({
@@ -170,7 +172,7 @@ class SheetsHandler:
     def update_status(self, row_index, status):
         """Update signal status"""
         try:
-            self.sheet.update(f"AG{row_index}", [[status]])  # current_status column
+            self.sheet.update(f"AH{row_index}", [[status]])  # current_status column (shifted)
             logger.debug(f"Status updated to '{status}' for row {row_index}")
         except Exception as e:
             logger.error(f"Error updating status: {e}", exc_info=True)
@@ -180,7 +182,7 @@ class SheetsHandler:
         try:
             # Truncate error message if too long
             truncated_error = error_msg[:500] + "..." if len(error_msg) > 500 else error_msg
-            self.sheet.update(f"AM{row_index}", [[truncated_error]])  # error_log column
+            self.sheet.update(f"AO{row_index}", [[truncated_error]])  # error_log column (shifted +2)
             logger.debug(f"Error logged for row {row_index}: {error_msg[:50]}...")
         except Exception as e:
             logger.error(f"Error updating error log: {e}")
@@ -188,7 +190,7 @@ class SheetsHandler:
     def find_row_by_ca(self, ca):
         """Find row index by contract address"""
         try:
-            ca_column = self.sheet.col_values(5)  # Column E (ca)
+            ca_column = self.sheet.col_values(6)  # Column F (ca) - shifted from E to F
             if ca in ca_column:
                 row_index = ca_column.index(ca) + 1
                 logger.debug(f"Found CA {ca} at row {row_index}")
@@ -199,38 +201,85 @@ class SheetsHandler:
             logger.error(f"Error finding row by CA: {e}", exc_info=True)
             return None
     
-    def update_alert_from_message(self, ca, alert_data):
-        """Update row when alert message is received"""
+    def update_alert_from_message(self, reply_to_message_id, alert_data):
+        """Update row when alert message is received (using reply_to_message_id)"""
         try:
-            row_index = self.find_row_by_ca(ca)
+            # Find row by message_id (column E)
+            row_index = self.find_row_by_message_id(reply_to_message_id)
             if not row_index:
-                logger.warning(f"Cannot update alert - CA {ca} not found")
-                return
+                # Fallback: try to find by CA
+                ca = alert_data.get('ca', '')
+                if ca:
+                    row_index = self.find_row_by_ca(ca)
+                
+                if not row_index:
+                    logger.warning(f"Cannot update alert - message_id {reply_to_message_id} not found")
+                    return
             
             multiplier = alert_data.get('multiplier', 0)
             peak = alert_data.get('peak', multiplier)
             alert_time = alert_data.get('alert_time', '')
+            time_elapsed = alert_data.get('time_elapsed', '')
+            gain = alert_data.get('gain', multiplier)
+            current_mc = alert_data.get('current_mc', 0)
             
             # Update peak if higher
-            current_peak = self.sheet.cell(row_index, 32).value  # peak_multiplier column
+            current_peak = self.sheet.cell(row_index, 33).value  # peak_multiplier column (shifted by 1)
             current_peak = float(current_peak) if current_peak else 1.0
             
             if peak > current_peak:
-                self.sheet.update(f"AF{row_index}", [[peak]])  # peak_multiplier
-                logger.info(f"📈 Peak updated to {peak}x for CA {ca[:8]}...")
+                self.sheet.update(f"AG{row_index}", [[peak]])  # peak_multiplier (shifted)
+                logger.info(f"📈 Peak updated to {peak}x for message_id {reply_to_message_id}")
                 
-                if alert_data.get('current_mc'):
-                    self.sheet.update(f"AE{row_index}", [[alert_data['current_mc']]])  # peak_mc
+                if current_mc:
+                    self.sheet.update(f"AF{row_index}", [[current_mc]])  # peak_mc (shifted)
             
             # Update alert_history_last
-            self.sheet.update(f"AL{row_index}", [[multiplier]])
+            self.sheet.update(f"AM{row_index}", [[multiplier]])
             
             # Update specific alert timestamp
-            alert_col_mapping = {2: 'AH', 3: 'AI', 5: 'AJ', 10: 'AK'}
+            alert_col_mapping = {2: 'AI', 3: 'AJ', 5: 'AK', 10: 'AL'}  # Shifted columns
             if multiplier in alert_col_mapping:
                 self.sheet.update(f"{alert_col_mapping[multiplier]}{row_index}", [[alert_time]])
             
-            logger.success(f"Alert updated: {multiplier}x for CA {ca[:8]}...")
+            # Update update_history column with new alert info
+            update_msg = f"{alert_time} | {multiplier}x alert | Gain: {gain}x | MC: ${current_mc:,.0f} | Time: {time_elapsed}"
+            self.append_update_history(row_index, update_msg)
+            
+            logger.success(f"Alert updated: {multiplier}x for message_id {reply_to_message_id}")
             
         except Exception as e:
             logger.error(f"Error updating alert from message: {e}", exc_info=True)
+    
+    def find_row_by_message_id(self, message_id):
+        """Find row index by message_id"""
+        try:
+            message_id_column = self.sheet.col_values(5)  # Column E (message_id)
+            message_id_str = str(message_id)
+            if message_id_str in message_id_column:
+                row_index = message_id_column.index(message_id_str) + 1
+                logger.debug(f"Found message_id {message_id} at row {row_index}")
+                return row_index
+            logger.debug(f"message_id {message_id} not found in sheet")
+            return None
+        except Exception as e:
+            logger.error(f"Error finding row by message_id: {e}", exc_info=True)
+            return None
+    
+    def append_update_history(self, row_index, update_msg):
+        """Append update to update_history column"""
+        try:
+            # Get existing history
+            existing_history = self.sheet.cell(row_index, 39).value  # Column AN (update_history, shifted)
+            
+            if existing_history:
+                new_history = f"{existing_history}\n{update_msg}"
+            else:
+                new_history = update_msg
+            
+            # Update the cell
+            self.sheet.update(f"AN{row_index}", [[new_history]])
+            logger.debug(f"Update history appended for row {row_index}")
+            
+        except Exception as e:
+            logger.error(f"Error appending update history: {e}", exc_info=True)

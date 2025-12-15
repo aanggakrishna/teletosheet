@@ -1,0 +1,50 @@
+# Python Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Telegram Session Files
+*.session
+*.session-journal
+
+# Environment Variables (SENSITIVE!)
+.env
+
+# Google Service Account Key (SENSITIVE!)
+service-account.json
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_*.py
+*_test.py
+
+# Backup files
+*_backup.py
+*.bak
+
+# Distribution / Packaging
+build/
+dist/
+*.egg-info/

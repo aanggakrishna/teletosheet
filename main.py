@@ -19,30 +19,41 @@ async def handle_new_message(event):
     try:
         message_text = event.message.message
         channel_id = event.chat_id
+        message_id = event.message.id
+        reply_to_message_id = event.message.reply_to_msg_id
         
         # Get channel name
         chat = await event.get_chat()
         channel_name = chat.title if hasattr(chat, 'title') else str(channel_id)
         
         logger.debug(f"Message received from {channel_name}: {message_text[:100]}...")
+        logger.debug(f"Message ID: {message_id}, Reply to: {reply_to_message_id}")
+        
+        # Check if it's an alert update (and it's a reply)
+        if is_alert_message(message_text):
+            alert_data = parse_alert_update(message_text)
+            if alert_data:
+                if reply_to_message_id:
+                    # Update existing signal row using reply_to_message_id
+                    sheets_handler.update_alert_from_message(reply_to_message_id, alert_data)
+                    logger.alert_triggered(f"{alert_data.get('multiplier')}x", alert_data.get('token_name', 'Unknown'))
+                elif alert_data.get('ca'):
+                    # Fallback: use CA if no reply
+                    sheets_handler.update_alert_from_message(None, alert_data)
+                    logger.alert_triggered(f"{alert_data.get('multiplier')}x", alert_data.get('ca', '')[:8])
+                else:
+                    logger.warning(f"Alert message without reply_to or CA from {channel_name}")
+            else:
+                logger.warning(f"Failed to parse alert from {channel_name}")
         
         # Check if it's a new signal
-        if is_signal_message(message_text):
-            signal_data = parse_new_signal(message_text, channel_id, channel_name)
+        elif is_signal_message(message_text):
+            signal_data = parse_new_signal(message_text, channel_id, channel_name, message_id)
             if signal_data:
                 sheets_handler.append_signal(signal_data)
                 logger.signal_received(signal_data.get('token_name', 'Unknown'), channel_name)
             else:
                 logger.warning(f"Failed to parse signal from {channel_name}")
-        
-        # Check if it's an alert update
-        elif is_alert_message(message_text):
-            alert_data = parse_alert_update(message_text)
-            if alert_data and alert_data.get('ca'):
-                sheets_handler.update_alert_from_message(alert_data['ca'], alert_data)
-                logger.alert_triggered(alert_data.get('multiplier'), alert_data.get('ca', ''))
-            else:
-                logger.warning(f"Failed to parse alert from {channel_name}")
     
     except Exception as e:
         logger.error(f"Error handling message from {channel_name if 'channel_name' in locals() else 'Unknown'}: {e}", exc_info=True)

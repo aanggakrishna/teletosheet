@@ -9,6 +9,8 @@ Bot Telegram untuk melacak sinyal crypto trading dan menyimpan data ke Google Sh
 ✅ **Price Tracking** - Melacak perubahan harga setiap 5, 10, 15, 30, 60 menit  
 ✅ **Google Sheets Integration** - Simpan semua data ke spreadsheet  
 ✅ **Alert System** - Notifikasi saat token mencapai 2x, 3x, 5x, 10x  
+✅ **Smart Update** - Alert update di row yang sama menggunakan reply system
+✅ **Update History** - Tracking lengkap semua alert dalam 1 row
 ✅ **Advanced Logging** - Log berwarna dengan level yang berbeda  
 ✅ **Heartbeat Monitoring** - Status bot secara berkala  
 ✅ **Error Handling** - Log error lengkap untuk debugging  
