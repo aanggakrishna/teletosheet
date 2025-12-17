@@ -132,13 +132,49 @@ New Signal: TOKEN NAME
             'volume_24h': r'Vol:\s*\$?([\d.]+)([KMB]?)',
             'ca': r'CA:\s*([A-Za-z0-9]{32,44})'
         }
+    },
+    
+    # Format 6: CA Only (fetch everything from API)
+    'ca_only': {
+        'name': 'CA Only (Auto-Fetch)',
+        'description': 'Only CA provided, fetch all data from DexScreener API',
+        'example': '''
+73toJFpdDpRQiXihBJYL5XK7TxqAiMh9Vg2yuZ1Xpump
+        ''',
+        'patterns': {
+            'ca': r'([A-Za-z0-9]{32,44})',  # Just match the CA
+        },
+        'auto_fetch': True  # Flag to fetch all data from API
+    },
+    
+    # Format 7: Narrative + CA (fetch technical data from API)
+    'narrative_ca': {
+        'name': 'Narrative + CA (Auto-Fetch Technical)',
+        'description': 'Narrative text + CA, fetch price/MC/etc from API',
+        'example': '''
+New gem found! This token has great potential.
+Strong community and upcoming partnerships.
+
+CA: 73toJFpdDpRQiXihBJYL5XK7TxqAiMh9Vg2yuZ1Xpump
+        ''',
+        'patterns': {
+            'ca': r'(?:CA:|Contract:|Address:)?\s*([A-Za-z0-9]{32,44})',
+            'token_name': r'(?:^|\n)([A-Z][A-Za-z0-9\s]{2,20})',  # Try to extract from text
+        },
+        'auto_fetch': True  # Fetch technical data from API
     }
 }
 
 # Channel ID to format mapping
 # Add your channel IDs here and assign them a format
 CHANNEL_FORMAT_MAPPING = {
-    # Example mappings (replace with your actual channel IDs):
+    # CA Only channels (hanya kirim CA, fetch semua dari API)
+    -1002031885122: 'ca_only',
+    
+    # Narrative + CA channels (kirim narasi + CA, fetch technical dari API)
+    -1002026135487: 'narrative_ca',
+    
+    # Example mappings for other formats:
     # -1001234567890: 'standard',
     # -1009876543210: 'compact',
     # -1001111111111: 'simple',

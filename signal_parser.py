@@ -141,6 +141,30 @@ def parse_new_signal(message_text, channel_id, channel_name, message_id):
             logger.warning(f"Invalid CA length for {data['token_name']}: {data['ca']}")
             data['ca'] = ''  # Reset if invalid
         
+        # Auto-fetch from API if format requires it
+        auto_fetch = format_config.get('auto_fetch', False)
+        if auto_fetch and data['ca']:
+            logger.info(f"🔍 Auto-fetch mode for {format_config['name']} - fetching all data from API...")
+            dex_data = fetch_dexscreener_data_sync(data['ca'])
+            
+            if dex_data:
+                # ALWAYS use token name from API for auto-fetch formats (more reliable)
+                api_token_name = dex_data.get('token_name', 'Unknown')
+                if api_token_name and api_token_name != 'Unknown':
+                    data['token_name'] = api_token_name
+                
+                # Override/fill all technical data from API
+                data['chain'] = dex_data.get('chain', 'Solana')
+                data['price_entry'] = dex_data.get('price', 0)
+                data['mc_entry'] = dex_data.get('market_cap', 0)
+                data['liquidity'] = dex_data.get('liquidity', 0)
+                data['volume_24h'] = dex_data.get('volume_24h', 0)
+                data['peak_mc'] = data['mc_entry']
+                
+                logger.success(f"✅ Auto-fetched: {data['token_name']} | Price=${data['price_entry']} | MC=${data['mc_entry']:,.0f}")
+            else:
+                logger.warning(f"⚠️ Could not auto-fetch data for CA: {data['ca'][:8]}...")
+        
         # Generate links
         if data['ca']:
             data['link_dexscreener'] = f"https://dexscreener.com/solana/{data['ca']}"
@@ -212,7 +236,14 @@ def fetch_dexscreener_data_sync(ca):
         # Get the first pair (usually the most liquid)
         pair = data['pairs'][0]
         
+        # Extract token info
+        base_token = pair.get('baseToken', {})
+        chain_id = pair.get('chainId', 'solana')
+        
         result = {
+            'token_name': base_token.get('name', 'Unknown'),
+            'token_symbol': base_token.get('symbol', ''),
+            'chain': chain_id.capitalize(),
             'price': float(pair.get('priceUsd', 0)),
             'market_cap': float(pair.get('fdv', 0)),
             'liquidity': float(pair.get('liquidity', {}).get('usd', 0)),
