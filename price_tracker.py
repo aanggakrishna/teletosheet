@@ -192,6 +192,12 @@ class PriceTracker:
             # Update live columns
             self.sheets.update_live_data(row_index, current_price, current_mc, gain_percent, update_count)
             
+            # Check pump milestones (50% and 100%)
+            await self.check_pump_milestones(signal, row_index, gain_percent, token_name)
+            
+            # Update ATH tracking
+            await self.update_ath_tracking(signal, row_index, current_price, current_mc, gain_percent, token_name)
+            
             # Update peak if higher
             peak_mc = self.clean_numeric_value(signal.get('peak_mc', entry_mc))
             peak_mult = self.clean_numeric_value(signal.get('peak_multiplier', 1.0))
@@ -219,6 +225,50 @@ class PriceTracker:
         
         except Exception as e:
             logger.debug(f"Error updating live price: {e}")
+    
+    async def check_pump_milestones(self, signal, row_index, gain_percent, token_name):
+        """Check and record pump milestones (50% and 100% gains)"""
+        try:
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            pump_50_time = signal.get('pump_50_time', '')
+            pump_100_time = signal.get('pump_100_time', '')
+            
+            # Check 50% milestone (1.5x = 50% gain)
+            if gain_percent >= 50 and not pump_50_time:
+                self.sheets.update_pump_milestones(row_index, pump_50_time=current_time)
+                logger.info(f"🎯 {token_name} reached 50% pump milestone! (+{gain_percent:.1f}%)")
+            
+            # Check 100% milestone (2x = 100% gain)
+            if gain_percent >= 100 and not pump_100_time:
+                self.sheets.update_pump_milestones(row_index, pump_100_time=current_time)
+                logger.info(f"🚀🚀 {token_name} reached 100% pump milestone! (+{gain_percent:.1f}%)")
+        
+        except Exception as e:
+            logger.debug(f"Error checking pump milestones: {e}")
+    
+    async def update_ath_tracking(self, signal, row_index, current_price, current_mc, current_gain_percent, token_name):
+        """Update All Time High tracking"""
+        try:
+            entry_mc = self.clean_numeric_value(signal.get('mc_entry', 0))
+            ath_mc = self.clean_numeric_value(signal.get('ath_mc', entry_mc))
+            
+            # Check if current MC is new ATH
+            if current_mc > ath_mc:
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Calculate ATH gain from entry
+                if entry_mc > 0:
+                    ath_gain_percent = ((current_mc - entry_mc) / entry_mc) * 100
+                else:
+                    ath_gain_percent = 0
+                
+                # Update ATH data
+                self.sheets.update_ath(row_index, current_price, current_mc, ath_gain_percent, current_time)
+                
+                logger.info(f"📈 New ATH for {token_name}: ${current_mc:,.0f} MC (+{ath_gain_percent:.1f}%)")
+        
+        except Exception as e:
+            logger.debug(f"Error updating ATH: {e}")
     
     async def process_traditional_intervals(self, signal, row_index, ca, elapsed_minutes):
         """Process traditional 5/10/15/30/60 min interval tracking"""
