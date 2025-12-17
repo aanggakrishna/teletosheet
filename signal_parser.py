@@ -1,10 +1,15 @@
 import re
 from datetime import datetime
 from logger import logger
+from channel_formats import get_format_for_channel
 
 def parse_new_signal(message_text, channel_id, channel_name, message_id):
-    """Parse new signal message from Telegram channel"""
+    """Parse new signal message from Telegram channel - supports multiple formats"""
     try:
+        # Get the appropriate format for this channel
+        format_config = get_format_for_channel(channel_id)
+        logger.debug(f"Using format '{format_config['name']}' for channel {channel_name}")
+        
         data = {
             'timestamp_received': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'channel_id': channel_id,
@@ -15,84 +20,121 @@ def parse_new_signal(message_text, channel_id, channel_name, message_id):
             'update_history': ''
         }
         
-        # Extract token name - skip SPONSORED and emoji lines
-        lines = message_text.strip().split('\n')
-        token_name_found = False
-        raw_token_name = ''
+        # Use format-specific patterns
+        patterns = format_config['patterns']
         
-        for line in lines:
-            cleaned_line = re.sub(r'[^\w\s\-]', '', line).strip()
-            # Skip empty lines, "SPONSORED", and lines with keywords
-            if cleaned_line and cleaned_line.upper() != 'SPONSORED' and not any(
-                keyword in line.upper() for keyword in ['CONTRACT', 'CHAIN', 'PRICE', 'MARKET', 'LIQUIDITY', 'VOLUME', 'BUNDLES', 'SNIPERS', 'DEX', 'CONFIDENCE']
-            ):
-                raw_token_name = cleaned_line
-                token_name_found = True
-                break
-        
-        data['token_name'] = raw_token_name if token_name_found else 'Unknown'
+        # Extract token name using format-specific pattern
+        token_match = re.search(patterns.get('token_name', r'([A-Z][A-Za-z0-9\s\-]+)'), message_text, re.MULTILINE)
+        if token_match:
+            data['token_name'] = re.sub(r'[^\w\s\-]', '', token_match.group(1)).strip()
+        else:
+            # Fallback to line-by-line extraction
+            lines = message_text.strip().split('\n')
+            token_name_found = False
+            raw_token_name = ''
+            
+            for line in lines:
+                cleaned_line = re.sub(r'[^\w\s\-]', '', line).strip()
+                if cleaned_line and cleaned_line.upper() != 'SPONSORED' and not any(
+                    keyword in line.upper() for keyword in ['CONTRACT', 'CHAIN', 'PRICE', 'MARKET', 'LIQUIDITY', 'VOLUME', 'BUNDLES', 'SNIPERS', 'DEX', 'CONFIDENCE']
+                ):
+                    raw_token_name = cleaned_line
+                    token_name_found = True
+                    break
+            
+            data['token_name'] = raw_token_name if token_name_found else 'Unknown'
         
         # If sponsored message, mark it
         if 'SPONSORED' in message_text.upper()[:50]:
             logger.debug(f"Sponsored signal detected: {data['token_name']}")
         
         # Extract chain
-        chain_match = re.search(r'Chain:\s*(\w+)', message_text, re.IGNORECASE)
-        data['chain'] = chain_match.group(1) if chain_match else ''
+        if 'chain' in patterns:
+            chain_match = re.search(patterns['chain'], message_text, re.IGNORECASE | re.MULTILINE)
+            data['chain'] = chain_match.group(1) if chain_match else ''
+        else:
+            data['chain'] = ''
         
         # Extract price
-        price_match = re.search(r'Price:\s*\$?([\d.]+)', message_text, re.IGNORECASE)
-        data['price_entry'] = float(price_match.group(1)) if price_match else 0
+        if 'price' in patterns:
+            price_match = re.search(patterns['price'], message_text, re.IGNORECASE)
+            data['price_entry'] = float(price_match.group(1)) if price_match else 0
+        else:
+            data['price_entry'] = 0
         
-        # Extract Market Cap
-        mc_match = re.search(r'Market Cap:\s*\$?([\d.]+)([KMB]?)', message_text, re.IGNORECASE)
-        if mc_match:
-            mc_value = float(mc_match.group(1))
-            mc_unit = mc_match.group(2).upper()
-            multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
-            data['mc_entry'] = mc_value * multipliers.get(mc_unit, 1)
+        # Extract Market Cap with K/M/B multipliers
+        if 'market_cap' in patterns:
+            mc_match = re.search(patterns['market_cap'], message_text, re.IGNORECASE)
+            if mc_match:
+                mc_value = float(mc_match.group(1))
+                mc_unit = mc_match.group(2).upper() if len(mc_match.groups()) > 1 else ''
+                multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
+                data['mc_entry'] = mc_value * multipliers.get(mc_unit, 1)
+            else:
+                data['mc_entry'] = 0
         else:
             data['mc_entry'] = 0
         
         # Extract Liquidity
-        liq_match = re.search(r'Liquidity:\s*\$?([\d.]+)([KMB]?)', message_text, re.IGNORECASE)
-        if liq_match:
-            liq_value = float(liq_match.group(1))
-            liq_unit = liq_match.group(2).upper()
-            multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
-            data['liquidity'] = liq_value * multipliers.get(liq_unit, 1)
+        if 'liquidity' in patterns:
+            liq_match = re.search(patterns['liquidity'], message_text, re.IGNORECASE)
+            if liq_match:
+                liq_value = float(liq_match.group(1))
+                liq_unit = liq_match.group(2).upper() if len(liq_match.groups()) > 1 else ''
+                multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
+                data['liquidity'] = liq_value * multipliers.get(liq_unit, 1)
+            else:
+                data['liquidity'] = 0
         else:
             data['liquidity'] = 0
         
         # Extract Volume 24h
-        vol_match = re.search(r'Volume 24h:\s*\$?([\d.]+)([KMB]?)', message_text, re.IGNORECASE)
-        if vol_match:
-            vol_value = float(vol_match.group(1))
-            vol_unit = vol_match.group(2).upper()
-            multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
-            data['volume_24h'] = vol_value * multipliers.get(vol_unit, 1)
+        if 'volume_24h' in patterns:
+            vol_match = re.search(patterns['volume_24h'], message_text, re.IGNORECASE)
+            if vol_match:
+                vol_value = float(vol_match.group(1))
+                vol_unit = vol_match.group(2).upper() if len(vol_match.groups()) > 1 else ''
+                multipliers = {'K': 1000, 'M': 1000000, 'B': 1000000000}
+                data['volume_24h'] = vol_value * multipliers.get(vol_unit, 1)
+            else:
+                data['volume_24h'] = 0
         else:
             data['volume_24h'] = 0
         
         # Extract Bundles
-        bundles_match = re.search(r'Bundles:\s*\d+\s*\((\d+)%\)', message_text, re.IGNORECASE)
-        data['bundles_percent'] = int(bundles_match.group(1)) if bundles_match else 0
+        if 'bundles' in patterns:
+            bundles_match = re.search(patterns['bundles'], message_text, re.IGNORECASE)
+            data['bundles_percent'] = int(bundles_match.group(1)) if bundles_match else 0
+        else:
+            data['bundles_percent'] = 0
         
         # Extract Snipers
-        snipers_match = re.search(r'Snipers:\s*\d+\s*\((\d+)%\)', message_text, re.IGNORECASE)
-        data['snipers_percent'] = int(snipers_match.group(1)) if snipers_match else 0
+        if 'snipers' in patterns:
+            snipers_match = re.search(patterns['snipers'], message_text, re.IGNORECASE)
+            data['snipers_percent'] = int(snipers_match.group(1)) if snipers_match else 0
+        else:
+            data['snipers_percent'] = 0
         
         # Extract Dev %
-        dev_match = re.search(r'Dev:\s*(\d+)%', message_text, re.IGNORECASE)
-        data['dev_percent'] = int(dev_match.group(1)) if dev_match else 0
+        if 'dev' in patterns:
+            dev_match = re.search(patterns['dev'], message_text, re.IGNORECASE)
+            data['dev_percent'] = int(dev_match.group(1)) if dev_match else 0
+        else:
+            data['dev_percent'] = 0
         
         # Extract Confidence
-        conf_match = re.search(r'Confidence:\s*(\d+)%', message_text, re.IGNORECASE)
-        data['confidence_score'] = int(conf_match.group(1)) if conf_match else 0
+        if 'confidence' in patterns:
+            conf_match = re.search(patterns['confidence'], message_text, re.IGNORECASE)
+            data['confidence_score'] = int(conf_match.group(1)) if conf_match else 0
+        else:
+            data['confidence_score'] = 0
         
-        # Extract Contract Address (CA) - Solana addresses are typically 32-44 characters
-        ca_match = re.search(r'Contract:\s*([A-Za-z0-9]{32,44})', message_text, re.IGNORECASE)
-        data['ca'] = ca_match.group(1) if ca_match else ''
+        # Extract Contract Address (CA)
+        if 'ca' in patterns:
+            ca_match = re.search(patterns['ca'], message_text, re.IGNORECASE)
+            data['ca'] = ca_match.group(1) if ca_match else ''
+        else:
+            data['ca'] = ''
         
         # Validate CA format (basic validation)
         if data['ca'] and len(data['ca']) < 32:
