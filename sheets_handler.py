@@ -1,5 +1,6 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 from config import GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
 from logger import logger
 
@@ -31,7 +32,8 @@ class SheetsHandler:
                 'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
                 'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
                 'alert_10x_time', 'alert_history_last', 'update_history', 'error_log', 
-                'link_dexscreener', 'link_pump'
+                'link_dexscreener', 'link_pump', 'last_update_time', 'update_count', 
+                'current_price_live', 'current_mc_live', 'current_gain_live'
             ]
             
             existing_headers = self.sheet.row_values(1)
@@ -90,7 +92,12 @@ class SheetsHandler:
                 data.get('update_history', ''),
                 data.get('error_log', ''),
                 data.get('link_dexscreener', ''),
-                data.get('link_pump', '')
+                data.get('link_pump', ''),
+                data.get('timestamp_received', ''),  # last_update_time
+                '0',  # update_count
+                data.get('price_entry', ''),  # current_price_live
+                data.get('mc_entry', ''),  # current_mc_live
+                '0%'  # current_gain_live
             ]
             
             self.sheet.append_row(row)
@@ -176,6 +183,25 @@ class SheetsHandler:
             logger.debug(f"Status updated to '{status}' for row {row_index}")
         except Exception as e:
             logger.error(f"Error updating status: {e}", exc_info=True)
+    
+    def update_live_data(self, row_index, price, mc, gain_percent, update_count):
+        """Update realtime live data columns"""
+        try:
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            updates = [
+                {'range': f"AR{row_index}", 'values': [[current_time]]},  # last_update_time
+                {'range': f"AS{row_index}", 'values': [[update_count]]},  # update_count
+                {'range': f"AT{row_index}", 'values': [[price]]},  # current_price_live
+                {'range': f"AU{row_index}", 'values': [[mc]]},  # current_mc_live
+                {'range': f"AV{row_index}", 'values': [[f"{gain_percent:.2f}%"]]}  # current_gain_live
+            ]
+            
+            self.sheet.batch_update(updates)
+            logger.debug(f"Live data updated for row {row_index}: {gain_percent:.2f}% gain")
+            
+        except Exception as e:
+            logger.error(f"Error updating live data: {e}", exc_info=True)
     
     def update_error_log(self, row_index, error_msg):
         """Update error log column"""

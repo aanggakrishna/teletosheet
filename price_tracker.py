@@ -1,13 +1,15 @@
 import requests
 import asyncio
 from datetime import datetime
-from config import DEXSCREENER_API_BASE, TRACKING_INTERVALS, ALERT_MULTIPLIERS
+from config import (DEXSCREENER_API_BASE, TRACKING_INTERVALS, ALERT_MULTIPLIERS,
+                    SMART_POLLING_INTERVALS, HOT_GAIN_THRESHOLD, TRACKING_DURATION)
 from logger import logger
 
 class PriceTracker:
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
         self.last_heartbeat = datetime.now()
+        self.signal_last_update = {}  # Track last update time per signal
     
     @staticmethod
     def clean_numeric_value(value):
@@ -33,8 +35,8 @@ class PriceTracker:
         return 0.0
     
     async def track_prices(self):
-        """Main tracking loop"""
-        logger.info("🔄 Price tracking loop started")
+        """Main tracking loop with smart polling"""
+        logger.info("🔄 Price tracking loop started with SMART POLLING")
         
         while True:
             try:
@@ -44,8 +46,8 @@ class PriceTracker:
                     logger.debug(f"Processing {len(active_signals)} active signals...")
                     
                     for signal in active_signals:
-                        await self.process_signal(signal)
-                        await asyncio.sleep(1)  # Small delay between signals
+                        await self.process_signal_smart(signal)
+                        await asyncio.sleep(0.5)  # Small delay between signals
                 else:
                     logger.debug("No active signals to track")
                 
@@ -55,11 +57,185 @@ class PriceTracker:
                     logger.debug(f"Price tracker heartbeat - processed {len(active_signals)} signals")
                     self.last_heartbeat = now
                 
-                await asyncio.sleep(60)  # Check every minute
+                # Check every 10 seconds for new signals to update
+                await asyncio.sleep(10)
                 
             except Exception as e:
                 logger.error(f"Error in tracking loop: {e}", exc_info=True)
                 await asyncio.sleep(60)
+    
+    def get_smart_interval(self, signal):
+        """Calculate dynamic update interval based on signal age and performance"""
+        try:
+            timestamp_str = signal.get('timestamp_received', '')
+            if not timestamp_str:
+                return SMART_POLLING_INTERVALS['normal']
+            
+            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+            age_minutes = (datetime.now() - timestamp).total_seconds() / 60
+            
+            # Calculate current gain
+            entry_mc = self.clean_numeric_value(signal.get('mc_entry', 0))
+            current_mc = self.clean_numeric_value(signal.get('current_mc_live', entry_mc))
+            
+            if entry_mc > 0:
+                gain_percent = ((current_mc - entry_mc) / entry_mc) * 100
+            else:
+                gain_percent = 0
+            
+            # Determine interval based on age and performance
+            if age_minutes < 5:
+                # Fresh signal (0-5 min): aggressive 30 seconds
+                return SMART_POLLING_INTERVALS['fresh']
+            elif age_minutes < 60 or gain_percent > HOT_GAIN_THRESHOLD:
+                # Hot signal (<1 hour OR pumping >20%): every 1 minute
+                return SMART_POLLING_INTERVALS['hot']
+            elif age_minutes < 1440:  # < 24 hours
+                # Normal signal: every 5 minutes
+                return SMART_POLLING_INTERVALS['normal']
+            elif age_minutes < 2880:  # < 2 days
+                # Mature signal: every 15 minutes
+                return SMART_POLLING_INTERVALS['mature']
+            else:
+                # Old signal (2-3 days): every 30 minutes
+                return SMART_POLLING_INTERVALS['old']
+        
+        except Exception as e:
+            logger.debug(f"Error calculating smart interval: {e}")
+            return SMART_POLLING_INTERVALS['normal']
+    
+    async def process_signal_smart(self, signal):
+        """Process signal with smart polling intervals"""
+        try:
+            row_index = signal['row_index']
+            ca = signal.get('ca', '')
+            token_name = signal.get('token_name', 'Unknown')
+            
+            if not ca:
+                logger.warning(f"No CA found for signal: {token_name}")
+                return
+            
+            # Check if tracking duration exceeded (3 days)
+            timestamp_str = signal.get('timestamp_received', '')
+            if not timestamp_str:
+                logger.warning(f"No timestamp for signal: {token_name}")
+                return
+            
+            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+            elapsed_minutes = (datetime.now() - timestamp).total_seconds() / 60
+            
+            if elapsed_minutes > TRACKING_DURATION:
+                self.sheets.update_status(row_index, 'stopped')
+                logger.stopped_tracking(token_name)
+                return
+            
+            # Get dynamic interval
+            update_interval = self.get_smart_interval(signal)
+            
+            # Check if enough time has passed since last update
+            signal_key = f"{row_index}_{ca}"
+            last_update = self.signal_last_update.get(signal_key)
+            
+            if last_update:
+                seconds_since_update = (datetime.now() - last_update).total_seconds()
+                if seconds_since_update < update_interval:
+                    # Too soon to update
+                    return
+            
+            # Time to update! Fetch fresh data
+            await self.update_live_price(signal, row_index, ca)
+            
+            # Record this update time
+            self.signal_last_update[signal_key] = datetime.now()
+            
+            # Also process traditional interval tracking
+            await self.process_traditional_intervals(signal, row_index, ca, elapsed_minutes)
+        
+        except Exception as e:
+            error_msg = f"Error processing signal {signal.get('token_name', 'Unknown')}: {e}"
+            logger.error(error_msg, exc_info=True)
+            
+            row_index = signal.get('row_index')
+            if row_index:
+                self.sheets.update_error_log(row_index, str(e))
+    
+    async def update_live_price(self, signal, row_index, ca):
+        """Update realtime live price data"""
+        try:
+            token_name = signal.get('token_name', 'Unknown')
+            
+            # Validate CA
+            if not ca or len(ca) < 32:
+                return
+            
+            # Fetch from DexScreener
+            price_data = await self.fetch_dexscreener_price(ca)
+            
+            if not price_data:
+                return
+            
+            current_price = price_data.get('price', 0)
+            current_mc = price_data.get('market_cap', 0)
+            
+            # Calculate gain
+            entry_mc = self.clean_numeric_value(signal.get('mc_entry', 0))
+            if entry_mc > 0:
+                gain_percent = ((current_mc - entry_mc) / entry_mc) * 100
+                multiplier = current_mc / entry_mc
+            else:
+                gain_percent = 0
+                multiplier = 0
+            
+            # Get current update count
+            update_count = int(self.clean_numeric_value(signal.get('update_count', 0))) + 1
+            
+            # Update live columns
+            self.sheets.update_live_data(row_index, current_price, current_mc, gain_percent, update_count)
+            
+            # Update peak if higher
+            peak_mc = self.clean_numeric_value(signal.get('peak_mc', entry_mc))
+            peak_mult = self.clean_numeric_value(signal.get('peak_multiplier', 1.0))
+            alert_history_last = int(self.clean_numeric_value(signal.get('alert_history_last', 0)))
+            alert_times = {}
+            
+            if current_mc > peak_mc:
+                peak_mc = current_mc
+                peak_mult = multiplier
+                
+                logger.info(f"🚀 New peak for {token_name}: {peak_mult:.2f}x (${current_mc:,.0f})")
+                
+                # Check for alert achievements
+                for alert_mult in ALERT_MULTIPLIERS:
+                    if multiplier >= alert_mult and alert_history_last < alert_mult:
+                        alert_history_last = alert_mult
+                        alert_times[alert_mult] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        logger.alert_triggered(f"{alert_mult}x", token_name)
+                
+                self.sheets.update_peak_and_alerts(
+                    row_index, peak_mc, peak_mult, alert_history_last, alert_times
+                )
+            
+            logger.debug(f"Live update #{update_count} for {token_name}: {multiplier:.2f}x ({gain_percent:+.1f}%)")
+        
+        except Exception as e:
+            logger.debug(f"Error updating live price: {e}")
+    
+    async def process_traditional_intervals(self, signal, row_index, ca, elapsed_minutes):
+        """Process traditional 5/10/15/30/60 min interval tracking"""
+        try:
+            token_name = signal.get('token_name', 'Unknown')
+            
+            # Check which intervals need updating
+            for interval in TRACKING_INTERVALS:
+                if elapsed_minutes >= interval:
+                    # Check if this interval is already filled
+                    existing_price = signal.get(f'price_{interval}min', '')
+                    if existing_price == '' or existing_price is None:
+                        # Fetch and update
+                        await self.update_interval(signal, row_index, ca, interval)
+        
+        except Exception as e:
+            logger.debug(f"Error processing traditional intervals: {e}")
     
     async def process_signal(self, signal):
         """Process individual signal tracking"""
