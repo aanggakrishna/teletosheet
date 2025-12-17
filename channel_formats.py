@@ -3,6 +3,8 @@ Multi-format signal parser configurations
 Supports different channel formats
 """
 
+import config
+
 # Channel format definitions
 CHANNEL_FORMATS = {
     # Format 1: Standard format with labeled fields
@@ -165,24 +167,13 @@ CA: 73toJFpdDpRQiXihBJYL5XK7TxqAiMh9Vg2yuZ1Xpump
     }
 }
 
-# Channel ID to format mapping
-# Add your channel IDs here and assign them a format
-CHANNEL_FORMAT_MAPPING = {
-    # CA Only channels (hanya kirim CA, fetch semua dari API)
-    -1002031885122: 'ca_only',
-    
-    # Narrative + CA channels (kirim narasi + CA, fetch technical dari API)
-    -1002026135487: 'narrative_ca',
-    
-    # Example mappings for other formats:
-    # -1001234567890: 'standard',
-    # -1009876543210: 'compact',
-    # -1001111111111: 'simple',
-    # Add more as needed...
-}
+# Channel ID to format mapping (loaded from config.py which reads from .env)
+# To add new channels, edit your .env file:
+# CHANNEL_FORMATS=-1002031885122:ca_only,-1002026135487:narrative_ca,-1001234567890:standard
+CHANNEL_FORMAT_MAPPING = config.CHANNEL_FORMAT_MAPPING
 
-# Default format if channel not mapped
-DEFAULT_FORMAT = 'standard'
+# Default format if channel not mapped (loaded from .env or defaults to 'standard')
+DEFAULT_FORMAT = config.DEFAULT_CHANNEL_FORMAT
 
 def get_format_for_channel(channel_id):
     """Get the appropriate format configuration for a channel"""

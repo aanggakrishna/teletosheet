@@ -38,13 +38,43 @@ GOOGLE_SHEET_ID=your_sheet_id
 GOOGLE_SERVICE_ACCOUNT_JSON=service-account.json
 LOG_LEVEL=INFO
 ENABLE_DEBUG_LOGS=false
+
+# Channel Format Mapping (NEW!)
+CHANNEL_FORMATS=-1002031885122:ca_only,-1002026135487:narrative_ca
+DEFAULT_CHANNEL_FORMAT=standard
 ```
+
+**📖 Lihat [ADD_CHANNEL.md](ADD_CHANNEL.md) untuk cara mudah tambah channel baru!**
 
 4. Setup Google Sheets:
    - Buat Google Sheets baru
    - Setup Service Account dan download JSON key
    - Rename file JSON ke `service-account.json`
    - Share sheet dengan email service account
+
+## Adding New Channels
+
+**✅ MUDAH! Tidak perlu edit kode Python!**
+
+Cukup edit file `.env`:
+
+```env
+# 1. Tambah channel ID (forward message ke @userinfobot untuk dapat ID)
+CHANNEL_IDS=-1002031885122,-1002026135487,-1009999999999
+
+# 2. Tambah format mapping
+CHANNEL_FORMATS=-1002031885122:ca_only,-1002026135487:narrative_ca,-1009999999999:ca_only
+
+# 3. Restart bot
+```
+
+**Format types tersedia:**
+- `ca_only` - Channel hanya kirim CA (auto-fetch semua data dari API) ✅
+- `narrative_ca` - Channel kirim narasi + CA (auto-fetch data teknis) ✅  
+- `standard` - Format labeled (Chain: Solana, Price: $X)
+- `compact/simple/detailed/list` - Format lainnya
+
+**📖 Dokumentasi lengkap: [CARA_TAMBAH_CHANNEL.md](CARA_TAMBAH_CHANNEL.md)**
 
 ## Usage
 

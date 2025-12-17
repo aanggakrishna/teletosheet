@@ -44,3 +44,33 @@ SMART_POLLING_INTERVALS = {
 
 # Thresholds for "hot" token detection
 HOT_GAIN_THRESHOLD = 20  # percent gain to be considered "hot"
+
+# Channel Format Mapping (from .env)
+# Format: CHANNEL_FORMATS=channel_id1:format1,channel_id2:format2
+# Example: CHANNEL_FORMATS=-1002031885122:ca_only,-1002026135487:narrative_ca
+def parse_channel_formats():
+    """Parse channel format mapping from environment variable"""
+    formats_str = os.getenv('CHANNEL_FORMATS', '')
+    channel_formats = {}
+    
+    if formats_str:
+        try:
+            # Split by comma to get each channel:format pair
+            pairs = formats_str.split(',')
+            for pair in pairs:
+                pair = pair.strip()
+                if ':' in pair:
+                    channel_id_str, format_name = pair.split(':', 1)
+                    channel_id = int(channel_id_str.strip())
+                    format_name = format_name.strip()
+                    channel_formats[channel_id] = format_name
+        except Exception as e:
+            print(f"⚠️ Error parsing CHANNEL_FORMATS: {e}")
+            print(f"   Format should be: channel_id1:format1,channel_id2:format2")
+    
+    return channel_formats
+
+CHANNEL_FORMAT_MAPPING = parse_channel_formats()
+
+# Default format if channel not in mapping
+DEFAULT_CHANNEL_FORMAT = os.getenv('DEFAULT_CHANNEL_FORMAT', 'standard')
