@@ -19,25 +19,29 @@ class SheetsHandler:
             logger.error(f"Failed to initialize Google Sheets: {e}", exc_info=True)
             raise
     
+    def _get_expected_headers(self):
+        """Return list of expected headers for the sheet"""
+        return [
+            'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'message_id',
+            'ca', 'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
+            'volume_24h', 'bundles_percent', 'snipers_percent', 'dev_percent', 
+            'confidence_score', 'price_5min', 'mc_5min', 'change_5min', 
+            'price_10min', 'mc_10min', 'change_10min', 'price_15min', 'mc_15min', 
+            'change_15min', 'price_30min', 'mc_30min', 'change_30min', 
+            'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
+            'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
+            'alert_10x_time', 'alert_history_last', 'update_history', 'error_log', 
+            'link_dexscreener', 'link_pump', 'last_update_time', 'update_count', 
+            'current_price_live', 'current_mc_live', 'current_gain_live',
+            'pump_10_time', 'pump_20_time', 'pump_30_time', 'pump_40_time', 'pump_50_time',
+            'pump_60_time', 'pump_70_time', 'pump_80_time', 'pump_90_time', 'pump_100_time',
+            'ath_price', 'ath_mc', 'ath_gain_percent', 'ath_time'
+        ]
+    
     def _ensure_headers(self):
         """Ensure spreadsheet has correct headers"""
         try:
-            headers = [
-                'nomor', 'timestamp_received', 'channel_id', 'channel_name', 'message_id',
-                'ca', 'token_name', 'chain', 'price_entry', 'mc_entry', 'liquidity', 
-                'volume_24h', 'bundles_percent', 'snipers_percent', 'dev_percent', 
-                'confidence_score', 'price_5min', 'mc_5min', 'change_5min', 
-                'price_10min', 'mc_10min', 'change_10min', 'price_15min', 'mc_15min', 
-                'change_15min', 'price_30min', 'mc_30min', 'change_30min', 
-                'price_60min', 'mc_60min', 'change_60min', 'peak_mc', 'peak_multiplier', 
-                'current_status', 'alert_2x_time', 'alert_3x_time', 'alert_5x_time', 
-                'alert_10x_time', 'alert_history_last', 'update_history', 'error_log', 
-                'link_dexscreener', 'link_pump', 'last_update_time', 'update_count', 
-                'current_price_live', 'current_mc_live', 'current_gain_live',
-                'pump_10_time', 'pump_20_time', 'pump_30_time', 'pump_40_time', 'pump_50_time',
-                'pump_60_time', 'pump_70_time', 'pump_80_time', 'pump_90_time', 'pump_100_time',
-                'ath_price', 'ath_mc', 'ath_gain_percent', 'ath_time'
-            ]
+            headers = self._get_expected_headers()
             
             existing_headers = self.sheet.row_values(1)
             if not existing_headers or existing_headers != headers:
@@ -128,7 +132,9 @@ class SheetsHandler:
     def get_active_signals(self):
         """Get all active signals for tracking"""
         try:
-            all_records = self.sheet.get_all_records()
+            # Use expected_headers to avoid duplicate column error
+            expected_headers = self._get_expected_headers()
+            all_records = self.sheet.get_all_records(expected_headers=expected_headers)
             active_signals = []
             
             for idx, record in enumerate(all_records, start=2):  # Start at 2 (skip header)
