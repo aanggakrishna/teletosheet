@@ -34,7 +34,9 @@ class SheetsHandler:
                 'alert_10x_time', 'alert_history_last', 'update_history', 'error_log', 
                 'link_dexscreener', 'link_pump', 'last_update_time', 'update_count', 
                 'current_price_live', 'current_mc_live', 'current_gain_live',
-                'pump_50_time', 'pump_100_time', 'ath_price', 'ath_mc', 'ath_gain_percent', 'ath_time'
+                'pump_10_time', 'pump_20_time', 'pump_30_time', 'pump_40_time', 'pump_50_time',
+                'pump_60_time', 'pump_70_time', 'pump_80_time', 'pump_90_time', 'pump_100_time',
+                'ath_price', 'ath_mc', 'ath_gain_percent', 'ath_time'
             ]
             
             existing_headers = self.sheet.row_values(1)
@@ -99,7 +101,15 @@ class SheetsHandler:
                 data.get('price_entry', ''),  # current_price_live
                 data.get('mc_entry', ''),  # current_mc_live
                 '0%',  # current_gain_live
+                '',  # pump_10_time
+                '',  # pump_20_time
+                '',  # pump_30_time
+                '',  # pump_40_time
                 '',  # pump_50_time
+                '',  # pump_60_time
+                '',  # pump_70_time
+                '',  # pump_80_time
+                '',  # pump_90_time
                 '',  # pump_100_time
                 data.get('price_entry', ''),  # ath_price (start with entry)
                 data.get('mc_entry', ''),  # ath_mc (start with entry)
@@ -210,26 +220,44 @@ class SheetsHandler:
         except Exception as e:
             logger.error(f"Error updating live data: {e}", exc_info=True)
     
-    def update_pump_milestones(self, row_index, pump_50_time=None, pump_100_time=None):
-        """Update pump milestone timestamps"""
+    def update_pump_milestones(self, row_index, milestones_dict):
+        """Update pump milestone timestamps
+        
+        Args:
+            row_index: Row number in sheet
+            milestones_dict: Dict with milestone percentage as key and timestamp as value
+                            e.g., {10: '2025-12-17 14:23:45', 50: '2025-12-17 15:30:12'}
+        """
         try:
+            if not milestones_dict:
+                return
+            
+            # Column mapping for pump milestones (AW to BF)
+            milestone_columns = {
+                10: 'AW',   # pump_10_time
+                20: 'AX',   # pump_20_time
+                30: 'AY',   # pump_30_time
+                40: 'AZ',   # pump_40_time
+                50: 'BA',   # pump_50_time
+                60: 'BB',   # pump_60_time
+                70: 'BC',   # pump_70_time
+                80: 'BD',   # pump_80_time
+                90: 'BE',   # pump_90_time
+                100: 'BF'   # pump_100_time
+            }
+            
             updates = []
             
-            if pump_50_time:
-                updates.append({
-                    'range': f"AW{row_index}",  # pump_50_time
-                    'values': [[pump_50_time]]
-                })
-            
-            if pump_100_time:
-                updates.append({
-                    'range': f"AX{row_index}",  # pump_100_time
-                    'values': [[pump_100_time]]
-                })
+            for milestone_percent, timestamp in milestones_dict.items():
+                if milestone_percent in milestone_columns:
+                    updates.append({
+                        'range': f"{milestone_columns[milestone_percent]}{row_index}",
+                        'values': [[timestamp]]
+                    })
             
             if updates:
                 self.sheet.batch_update(updates)
-                logger.info(f"Pump milestone updated for row {row_index}")
+                logger.info(f"Pump milestones updated for row {row_index}: {list(milestones_dict.keys())}")
             
         except Exception as e:
             logger.error(f"Error updating pump milestones: {e}", exc_info=True)
@@ -238,10 +266,10 @@ class SheetsHandler:
         """Update ATH (All Time High) tracking data"""
         try:
             updates = [
-                {'range': f"AY{row_index}", 'values': [[ath_price]]},  # ath_price
-                {'range': f"AZ{row_index}", 'values': [[ath_mc]]},  # ath_mc
-                {'range': f"BA{row_index}", 'values': [[f"{ath_gain_percent:.2f}%"]]},  # ath_gain_percent
-                {'range': f"BB{row_index}", 'values': [[ath_time]]}  # ath_time
+                {'range': f"BG{row_index}", 'values': [[ath_price]]},  # ath_price
+                {'range': f"BH{row_index}", 'values': [[ath_mc]]},  # ath_mc
+                {'range': f"BI{row_index}", 'values': [[f"{ath_gain_percent:.2f}%"]]},  # ath_gain_percent
+                {'range': f"BJ{row_index}", 'values': [[ath_time]]}  # ath_time
             ]
             
             self.sheet.batch_update(updates)

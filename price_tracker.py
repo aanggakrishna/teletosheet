@@ -227,21 +227,35 @@ class PriceTracker:
             logger.debug(f"Error updating live price: {e}")
     
     async def check_pump_milestones(self, signal, row_index, gain_percent, token_name):
-        """Check and record pump milestones (50% and 100% gains)"""
+        """Check and record pump milestones (10%, 20%, 30%...100% gains)"""
         try:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            pump_50_time = signal.get('pump_50_time', '')
-            pump_100_time = signal.get('pump_100_time', '')
             
-            # Check 50% milestone (1.5x = 50% gain)
-            if gain_percent >= 50 and not pump_50_time:
-                self.sheets.update_pump_milestones(row_index, pump_50_time=current_time)
-                logger.info(f"🎯 {token_name} reached 50% pump milestone! (+{gain_percent:.1f}%)")
+            # Define all milestones (10% to 100% in 10% increments)
+            milestones = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
             
-            # Check 100% milestone (2x = 100% gain)
-            if gain_percent >= 100 and not pump_100_time:
-                self.sheets.update_pump_milestones(row_index, pump_100_time=current_time)
-                logger.info(f"🚀🚀 {token_name} reached 100% pump milestone! (+{gain_percent:.1f}%)")
+            # Track which milestones need to be updated
+            new_milestones = {}
+            
+            for milestone in milestones:
+                # Check if this milestone already triggered
+                existing_time = signal.get(f'pump_{milestone}_time', '')
+                
+                # If not triggered yet and gain reached this milestone
+                if not existing_time and gain_percent >= milestone:
+                    new_milestones[milestone] = current_time
+                    
+                    # Log with appropriate emoji
+                    if milestone == 100:
+                        logger.info(f"🚀🚀 {token_name} reached {milestone}% pump milestone! (+{gain_percent:.1f}%)")
+                    elif milestone >= 50:
+                        logger.info(f"🎯 {token_name} reached {milestone}% pump milestone! (+{gain_percent:.1f}%)")
+                    else:
+                        logger.info(f"� {token_name} reached {milestone}% pump milestone! (+{gain_percent:.1f}%)")
+            
+            # Update sheet if any new milestones reached
+            if new_milestones:
+                self.sheets.update_pump_milestones(row_index, new_milestones)
         
         except Exception as e:
             logger.debug(f"Error checking pump milestones: {e}")
