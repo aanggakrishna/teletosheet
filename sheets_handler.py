@@ -121,8 +121,13 @@ class SheetsHandler:
                 data.get('timestamp_received', '')  # ath_time (start with signal time)
             ]
             
-            self.sheet.append_row(row)
-            logger.success(f"Signal saved to sheet: {data.get('token_name')} ({data.get('ca', '')[:8]}...)")
+            # Use update() instead of append_row() for better reliability
+            # append_row() sometimes fails silently, update() works consistently
+            next_row_index = len(all_values) + 1
+            range_name = f'A{next_row_index}:BJ{next_row_index}'  # A to BJ (62 columns)
+            self.sheet.update(values=[row], range_name=range_name)
+            
+            logger.success(f"Signal saved to sheet row {next_row_index}: {data.get('token_name')} ({data.get('ca', '')[:8]}...)")
             return next_number
             
         except Exception as e:
